@@ -1,0 +1,322 @@
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+  --highlight-color: #eaeaea;  
+  --wagmi-color: #0a0a0a; 
+  --arcana-color: #1e1a1c;
+}
+
+.logo {
+  height: 2.5vw;
+  padding: 0.5em;
+  will-change: filter;
+  transition: filter 300ms;
+}
+
+.logo:hover {
+  filter: drop-shadow(0 0 2em #646cffaa);
+}
+
+.logo.react:hover {
+  filter: drop-shadow(0 0 2em #61dafbaa);
+}
+
+@keyframes logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  a:nth-of-type(2) .logo {
+    animation: logo-spin infinite 20s linear;
+  }
+}
+
+.read-the-docs {
+  color: #888;
+}
+
+.container {
+  display: flex; /* Flexbox for horizontal layout */
+  flex-wrap: wrap; /* Allow wrapping when space is tight */
+  gap: 10px; /* Space between appCards */
+  margin: 0 auto; /* Center if needed */
+  padding: 10px; /* Optional padding */
+  box-sizing: border-box; /* Include padding in width */
+}
+
+.app-card {
+  flex: 1; /* Equal width distribution */
+  min-width: 200px; /* Minimum width before wrapping */
+  background-color: #ffffff; /* Fallback to white */
+  padding: 0.2vw;
+  text-align: center;
+  border: 1px solid var(--highlight-color, #eaeaea); /* Fallback to white */
+  padding: 0.2vw;;
+  box-sizing: border-box; /* Include padding/border in width */
+}
+
+.arcana-color {
+  --highlight-color: var(--arcana-color);/* Only set the custom property */
+}
+
+.logo.wagmi:hover {
+  filter: drop-shadow(0 0 2em #0b0b0beb);
+}
+
+.logo.arcana:hover {
+  filter: drop-shadow(0 0 2em #f6a4d5eb);
+}
+
+.app-button {
+  background-color: var(--highlight-color, #eaeaea);
+  padding: 0.75vw;
+  margin: 0.5vw;
+}
+
+.wagmi-color {
+  --highlight-color: var(--wagmi-color);/* Only set the custom property */
+}
+
+.popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.5); /* Semi-transparent overlay */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000; /* Ensures it’s on top of all UI elements */
+}
+
+.popup-content {
+  background: #f0f0f0; /* Light gray background */
+  padding: 20px;
+  border-radius: 8px;
+  position: relative;
+  width: 300px; /* Adjust as needed */
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); /* Optional: adds depth */
+}
+
+.popup-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: white; /* White background */
+  color: black; /* Black text for 'X' */
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 4px;
+}
+
+.popup-address {
+  margin-bottom: 10px; /* Optional: adds spacing */
+}
+
+.address-text {
+  word-break: break-all;
+}
+
+/* NEW: Styles for balance popup, added to display ca.getUnifiedBalances */
+.balance-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.balance-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+.balance-popup h2 {
+  margin: 0 0 10px;
+  color: #333;
+  font-size: 1.5em;
+}
+
+.balance-popup select {
+  width: 100%;
+  padding: 10px;
+  margin: 10px 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+  font-size: 1em;
+  cursor: pointer;
+}
+
+.balance-popup select:focus {
+  outline: none;
+  border-color: #6200ea;
+}
+
+.balance-popup ul {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+}
+
+.balance-popup li {
+  padding: 8px 0;
+  color: #333;
+  font-size: 0.9em;
+}
+
+.balance-popup .close-button {
+  background-color: #6200ea;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+  font-size: 1em;
+}
+
+.balance-popup .close-button:hover {
+  background-color: #3700b3;
+}
+
+/* NEW: Styles for allowance popup, replaces hardcoded allowance UI */
+.allowance-popup {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  max-width: 500px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.allowance-popup-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+}
+
+.allowance-popup h2 {
+  margin: 0 0 10px;
+  color: #333;
+  font-size: 1.5em;
+}
+
+.allowance-popup ul {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+}
+
+.allowance-popup li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.allowance-popup label {
+  font-size: 0.9em;
+  color: #333;
+  flex: 1;
+}
+
+.allowance-popup input {
+  width: 100px;
+  padding: 5px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.allowance-popup input:focus {
+  outline: none;
+  border-color: #6200ea;
+}
+
+.allowance-popup .button-group {
+  display: flex;
+  justify-content: space-between;
+  margin: 10px 0;
+}
+
+.allowance-popup .action-button {
+  background-color: #6200ea;
+  color: white;
+  padding: 8px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+}
+
+.allowance-popup .action-button:hover {
+  background-color: #3700b3;
+}
+
+.allowance-popup .cancel-button,
+.allowance-popup .submit-button {
+  background-color: #6200ea;
+  color: white;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.allowance-popup .cancel-button {
+  background-color: #ccc;
+  color: #333;
+}
+
+.allowance-popup .cancel-button:hover {
+  background-color: #aaa;
+}
+
+.allowance-popup .submit-button:hover {
+  background-color: #3700b3;
+}
+
+/* NEW: Styles for wallet detection message */
+.wallet-message {
+  color: #333;
+  font-size: 0.9em;
+  margin: 10px 0;
+}
