@@ -1,0 +1,763 @@
+import { useState, useEffect } from 'react';
+import reactLogo from './assets/react.svg';
+import viteLogo from '/vite.svg';
+import './style.css';
+import './App.css';
+import { listTokenContracts, supportedChainsId } from './utils/chains';
+import { CA } from '@arcana/ca-sdk';
+
+// Initialize CA SDK
+const ca = new CA();
+
+// Chain ID to name mapping for display
+const chainNames: { [chainId: number]: string } = {
+  1: 'Ethereum',
+  10: 'Optimism',
+  42161: 'Arbitrum',
+  43114: 'Avalanche',
+  137: 'Polygon',
+  534352: 'Scroll',
+  59144: 'Linea',
+  8453: 'Base',
+  11155111: 'Sepolia',
+  80002: 'Polygon Amoy',
+  43113: 'Avalanche Fuji',
+};
+
+// Unlimited allowance
+const UNLIMITED_ALLOWANCE = 'unlimited';
+
+// Address validation regex
+const isValidAddress = (address: string | null): address is string => {
+  return !!address && /^0x[a-fA-F0-9]{40}$/.test(address);
+};
+
+// Type for getUnifiedBalances response
+type TokenBalance = {
+  symbol: string;
+  balance: string;
+  balanceInFiat: number;
+  decimals: number;
+  icon?: string;
+  abstracted?: boolean;
+  breakdown?: {
+    chain_id: Uint8Array;
+    currencies: { balance: string; token_address: Uint8Array; value: string }[];
+    total_usd: string;
+    universe: number;
+  }[];
+  local?: any;
+};
+
+// Native tokens by chain ID
+const nativeTokens: { [chainId: number]: string } = {
+  1: 'ETH',
+  137: 'POL',
+  43114: 'AVAX',
+  8453: 'ETH',
+  11155111: 'ETH',
+  80002: 'POL',
+  43113: 'AVAX',
+};
+
+function App() {
+  const [count, setCount] = useState(0);
+  const [address, setAddress] = useState<string | null>(null);
+  const [unifiedBalance, setUnifiedBalance] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [allowanceStatus, setAllowanceStatus] = useState<string | null>(null);
+  const [intentStatus, setIntentStatus] = useState<string | null>(null);
+  const [showBalancePopup, setShowBalancePopup] = useState(false);
+  const [chainBalances, setChainBalances] = useState<{
+    tokens: TokenBalance[];
+    totalFiat: number;
+    aggregates: { [symbol: string]: string };
+  } | null>(null);
+  const [showAllowancePopup, setShowAllowancePopup] = useState(false);
+  const [allowances, setAllowances] = useState<{ [chainId: number]: string }>(
+    supportedChainsId.reduce((acc, chain) => ({
+      ...acc,
+      [chain.chainId]: UNLIMITED_ALLOWANCE,
+    }), {})
+  );
+  const [hasWalletProvider, setHasWalletProvider] = useState<boolean>(false);
+  const [expandedTokens, setExpandedTokens] = useState<{ [symbol: string]: boolean }>({});
+
+  // Check for wallet provider on mount
+  useEffect(() => {
+    if (window.ethereum) {
+      setHasWalletProvider(true);
+    } else {
+      setError('No wallet provider detected. Please install MetaMask or another wallet.');
+    }
+  }, []);
+
+  // Initialize CA SDK
+  const initializeCA = async () => {
+    if (!window.ethereum) {
+      setError('No wallet provider found. Please install MetaMask.');
+      return;
+    }
+    try {
+      ca.setEVMProvider(window.ethereum);
+      await ca.init();
+      setIsInitialized(true);
+      setError(null);
+    } catch (err) {
+      setError('Failed to initialize CA SDK');
+      console.error(err);
+    }
+  };
+
+  // Set up allowance and intent hooks
+  useEffect(() => {
+    if (isInitialized) {
+      ca.setOnAllowanceHook((response: { status: string; data: any }) => {
+        if (response.status === 'success') {
+          setAllowanceStatus(`Allowance set successfully: ${response.data.transactionHash || 'Confirmed'}`);
+        } else if (response.status === 'error') {
+          setAllowanceStatus(`Allowance failed: ${response.data.message || 'Unknown error'}`);
+        } else {
+          setAllowanceStatus(`Allowance status: ${response.status}`);
+        }
+        console.log('Allowance hook:', response);
+      });
+
+      ca.setOnIntentHook((response: { status: 'created' | 'processed' | 'completed' | 'error'; data: { intentId?: string; transactionHash?: string; message?: string } }) => {
+        const { status, data } = response;
+        if (status === 'created') {
+          setIntentStatus(`Intent created: ${data.intentId || 'Pending'}`);
+        } else if (status === 'processed') {
+          setIntentStatus(`Intent processing: ${data.intentId || 'In progress'}`);
+        } else if (status === 'completed') {
+          setIntentStatus(`Intent completed: ${data.transactionHash || 'Confirmed'}`);
+        } else if (status === 'error') {
+          setIntentStatus(`Intent failed: ${data.message || 'Unknown error'}`);
+        }
+        console.log('Intent hook:', response);
+      });
+    }
+  }, [isInitialized]);
+
+  // Check wallet connection and fetch account
+  useEffect(() => {
+    async function checkConnection() {
+      if (isInitialized && window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+          if (accounts && accounts.length > 0) {
+            setAddress(accounts[0]);
+            setIsConnected(true);
+          } else {
+            setIsConnected(false);
+            setAddress(null);
+          }
+        } catch (err) {
+          setError('Failed to check wallet connection');
+          console.error(err);
+        }
+      }
+    }
+    checkConnection();
+  }, [isInitialized]);
+
+  // Fetch total unified balance
+  useEffect(() => {
+    async function fetchUnifiedBalance() {
+      if (isInitialized && isConnected && isValidAddress(address)) {
+        try {
+          const balances = await ca.getUnifiedBalances();
+          if (
+            Array.isArray(balances) &&
+            balances.every(
+              (token) =>
+                token &&
+                typeof token.symbol === 'string' &&
+                typeof token.balance === 'string' &&
+                (typeof token.balanceInFiat === 'number' || typeof token.balanceInFiat === 'string') &&
+                typeof token.decimals === 'number'
+            )
+          ) {
+            console.log('fetchUnifiedBalance - getUnifiedBalances output:', balances);
+            const totalFiat = balances.reduce((sum, token) => {
+              const fiatValue = typeof token.balanceInFiat === 'string' ? parseFloat(token.balanceInFiat) : token.balanceInFiat;
+              return sum + (isNaN(fiatValue) ? 0 : fiatValue);
+            }, 0);
+            setUnifiedBalance(`$${totalFiat.toFixed(2)} USD`);
+          } else {
+            console.warn('getUnifiedBalances returned invalid response:', balances);
+            setUnifiedBalance('$0.00 USD');
+          }
+          setError(null);
+        } catch (err) {
+          setError('Failed to fetch total unified balance');
+          console.error('getUnifiedBalances error:', err);
+        }
+      }
+    }
+    fetchUnifiedBalance();
+  }, [isInitialized, isConnected, address]);
+
+  // Handle wallet connection
+  const handleConnect = async () => {
+    if (!hasWalletProvider || !window.ethereum) {
+      setError('No wallet provider found. Please install MetaMask.');
+      return;
+    }
+    try {
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+      if (accounts && accounts.length > 0) {
+        setAddress(accounts[0]);
+        setIsConnected(true);
+        await initializeCA();
+        setError(null);
+      } else {
+        setError('No accounts found');
+      }
+    } catch (err) {
+      setError('Wallet connection failed');
+      console.error(err);
+    }
+  };
+
+  // Handle wallet disconnection
+  const handleDisconnect = () => {
+    setAddress(null);
+    setIsConnected(false);
+    setUnifiedBalance(null);
+    setAllowanceStatus(null);
+    setIntentStatus(null);
+    setChainBalances(null);
+    setShowBalancePopup(false);
+    setShowAllowancePopup(false);
+    setAllowances(supportedChainsId.reduce((acc, chain) => ({
+      ...acc,
+      [chain.chainId]: UNLIMITED_ALLOWANCE,
+    }), {}));
+    setIsInitialized(false);
+    setError(null);
+    setExpandedTokens({});
+  };
+
+  // Convert Uint8Array chain_id to number (big-endian)
+  const convertChainId = (chainIdArray: Uint8Array): number => {
+    // Take the last 4 bytes for chain ID (big-endian)
+    const lastFourBytes = chainIdArray.slice(-4);
+    return (
+      (lastFourBytes[0] * 256 * 256 * 256) +
+      (lastFourBytes[1] * 256 * 256) +
+      (lastFourBytes[2] * 256) +
+      lastFourBytes[3]
+    );
+  };
+
+  // Process token array and prepare dropdown data
+  const handleShowBalance = async () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    try {
+      const balances = await ca.getUnifiedBalances();
+      if (
+        Array.isArray(balances) &&
+        balances.every(
+          (token) =>
+            token &&
+            typeof token.symbol === 'string' &&
+            typeof token.balance === 'string' &&
+            (typeof token.balanceInFiat === 'number' || typeof token.balanceInFiat === 'string') &&
+            typeof token.decimals === 'number'
+        )
+      ) {
+        console.log('handleShowBalance - getUnifiedBalances output:', balances);
+        balances.forEach((token) => {
+          console.log(`Breakdown for ${token.symbol}:`, token.breakdown);
+        });
+
+        const supportedSymbols = ['ETH', 'USDT', 'USDC', 'POL', 'AVAX'];
+        const tokens = supportedSymbols.map((symbol) => {
+          const token = balances.find((t) => t.symbol === symbol) || {
+            symbol,
+            balance: '0',
+            balanceInFiat: 0,
+            decimals: symbol === 'ETH' || symbol === 'POL' || symbol === 'AVAX' ? 18 : 6,
+            breakdown: [],
+          };
+          return {
+            ...token,
+            balanceInFiat: typeof token.balanceInFiat === 'string' ? parseFloat(token.balanceInFiat) || 0 : token.balanceInFiat,
+          };
+        });
+
+        const aggregates: { [symbol: string]: string } = {};
+        for (const token of tokens) {
+          try {
+            const balance = await ca.getUnifiedBalance(token.symbol.toLowerCase());
+            aggregates[token.symbol.toLowerCase()] = typeof balance === 'string' ? balance : '0';
+          } catch (err) {
+            aggregates[token.symbol.toLowerCase()] = '0';
+            console.warn(`Failed to fetch balance for ${token.symbol}:`, err);
+          }
+        }
+
+        const totalFiat = tokens.reduce((sum, token) => sum + (token.balanceInFiat || 0), 0);
+
+        setChainBalances({
+          tokens,
+          totalFiat,
+          aggregates,
+        });
+        setShowBalancePopup(true);
+      } else {
+        console.warn('Invalid balance response:', balances);
+        setChainBalances({
+          tokens: ['ETH', 'USDT', 'USDC', 'POL', 'AVAX'].map((symbol) => ({
+            symbol,
+            balance: '0',
+            balanceInFiat: 0,
+            decimals: symbol === 'ETH' || symbol === 'POL' || symbol === 'AVAX' ? 18 : 6,
+            breakdown: [],
+          })),
+          totalFiat: 0,
+          aggregates: { eth: '0', usdt: '0', usdc: '0', pol: '0', avax: '0' },
+        });
+      }
+      setError(null);
+    } catch (err) {
+      setError('Failed to fetch balances');
+      console.error('Balance fetch error:', err);
+    }
+  };
+
+  // Format balance for human-readable input
+  const formatBalance = (balance: string, decimals: number): string => {
+    try {
+      if (balance.includes('.')) {
+        return parseFloat(balance).toFixed(decimals === 18 ? 4 : 2);
+      }
+      const value = Number(balance);
+      if (isNaN(value)) return '0.00';
+      return (value / Math.pow(10, decimals)).toFixed(decimals === 18 ? 4 : 2);
+    } catch {
+      console.warn('Invalid balance format:', balance);
+      return '0.00';
+    }
+  };
+
+  // Toggle dropdown for a token
+  const toggleTokenDropdown = (symbol: string) => {
+    setExpandedTokens((prev) => ({
+      ...prev,
+      [symbol]: !prev[symbol],
+    }));
+  };
+
+  // Handle allowance popup
+  const handleSetAllowance = () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    setShowAllowancePopup(true);
+    setError(null);
+  };
+
+  // Handle allowance input change
+  const handleAllowanceChange = (chainId: number, value: string) => {
+    setAllowances((prev) => ({
+      ...prev,
+      [chainId]: value,
+    }));
+  };
+
+  // Set all allowances to unlimited
+  const setAllUnlimited = () => {
+    setAllowances(supportedChainsId.reduce((acc, chain) => ({
+      ...acc,
+      [chain.chainId]: UNLIMITED_ALLOWANCE,
+    }), {}));
+  };
+
+  // Set all allowances to a specific amount
+  const setAllAmount = () => {
+    const amount = prompt('Enter allowance amount in gwei (non-zero):');
+    if (amount && Number(amount) > 0) {
+      setAllowances(supportedChainsId.reduce((acc, chain) => ({
+        ...acc,
+        [chain.chainId]: amount,
+      }), {}));
+    } else {
+      alert('Please enter a valid non-zero amount');
+    }
+  };
+
+  // Clear all allowances
+  const clearAllAllowances = () => {
+    setAllowances(supportedChainsId.reduce((acc, chain) => ({
+      ...acc,
+      [chain.chainId]: '0',
+    }), {}));
+  };
+
+  // Handle allowance submission
+  const submitAllowances = async () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    try {
+      for (const chain of supportedChainsId) {
+        const amountInGwei = allowances[chain.chainId];
+        if (!amountInGwei || (amountInGwei !== UNLIMITED_ALLOWANCE && isNaN(Number(amountInGwei)))) continue;
+        const tokenAddress = listTokenContracts[chain.chainId]?.USDC;
+        if (!tokenAddress) {
+          console.warn(`No USDC address for chain ${chain.chainId}`);
+          continue;
+        }
+        const amountInUSDC = amountInGwei === UNLIMITED_ALLOWANCE
+          ? '115792089237316195423570985008687907853269984665640564039457584007913129639935'
+          : (BigInt(amountInGwei) * BigInt(1000)).toString();
+        await ca.allowance({
+          tokenAddress,
+          spender: '0x0000000000000000000000000000000000000001',
+          amount: amountInUSDC,
+          chainId: chain.chainId,
+        });
+      }
+      setShowAllowancePopup(false);
+      setError(null);
+    } catch (err) {
+      setError('Failed to set allowances');
+      console.error(err);
+    }
+  };
+
+  // Close allowance popup
+  const closeAllowancePopup = () => {
+    setShowAllowancePopup(false);
+    setAllowances(supportedChainsId.reduce((acc, chain) => ({
+      ...acc,
+      [chain.chainId]: UNLIMITED_ALLOWANCE,
+    }), {}));
+  };
+
+  // Handle transfer
+  const handleTransfer = async () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    try {
+      const tokenAddress = listTokenContracts[1]?.USDC;
+      if (!tokenAddress) {
+        throw new Error('USDC address not found for chain 1');
+      }
+      const recipient = '0x0000000000000000000000000000000000000002';
+      const amount = '500000'; // 0.5 USDC (6 decimals)
+      await ca.transfer({
+        tokenAddress,
+        to: recipient,
+        amount,
+        chainId: 1,
+      });
+      setError(null);
+    } catch (err) {
+      setError('Failed to execute transfer');
+      console.error(err);
+    }
+  };
+
+  // Handle bridge
+  const handleBridge = async () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    try {
+      const tokenAddress = listTokenContracts[1]?.USDC;
+      if (!tokenAddress) {
+        throw new Error('USDC address not found for chain 1');
+      }
+      const amount = '500000'; // 0.5 USDC (6 decimals)
+      await ca.bridge({
+        tokenAddress,
+        amount,
+        fromChainId: 1,
+        toChainId: 137,
+      });
+      setError(null);
+    } catch (err) {
+      setError('Failed to execute bridge');
+      console.error(err);
+    }
+  };
+
+  // Handle request
+  const handleRequest = async () => {
+    if (!isInitialized) {
+      setError('CA SDK not initialized');
+      return;
+    }
+    if (!isConnected || !isValidAddress(address)) {
+      setError('Please connect a valid wallet');
+      return;
+    }
+    try {
+      await ca.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: address,
+          to: '0x0000000000000000000000000000000000000002',
+          value: '10000000000000000', // 0.01 ETH in wei
+          chainId: 1,
+        }],
+      });
+      setError(null);
+    } catch (err) {
+      setError('Failed to execute request');
+      console.error(err);
+    }
+  };
+
+  const TitleSection = () => (
+    <h1>CA SDK Sample Integration App</h1>
+  );
+
+  const ViteReactSection = () => (
+    <div className="app-card">
+      <a href="https://vite.dev" target="_blank">
+        <img src={viteLogo} className="logo" alt="Vite logo" />
+      </a>
+      <a href="https://react.dev" target="_blank">
+        <img src={reactLogo} className="logo react" alt="React logo" />
+      </a>
+      <h1>Vite + React</h1>
+      <div className="card">
+        <button className="app-button" onClick={() => setCount((count) => count + 1)}>
+          count is {count}
+        </button>
+        <p>
+          Edit <code>src/App.tsx</code> and save to test HMR
+        </p>
+      </div>
+      <p className="read-the-docs">
+        Click on the Vite, React logos to learn more
+      </p>
+    </div>
+  );
+
+  const CASDKSection = () => (
+    <div className="app-card">
+      <h1>Arcana CA SDK + Vite + React</h1>
+      <a href="https://arcana.network" target="_blank">
+        <img src="https://avatars.githubusercontent.com/u/82495837" className="logo arcana" alt="Arcana logo" />
+      </a>
+      <div className="card">
+        <p>Uses <a href="https://www.npmjs.com/package/@arcana/ca-sdk">`ca-sdk`</a> SDK</p>
+        {!hasWalletProvider ? (
+          <>
+            <p className="wallet-message">No wallet provider detected. Please install MetaMask or another wallet.</p>
+            <button className="app-button" disabled title="Please install a wallet like MetaMask">
+              Connect Wallet
+            </button>
+          </>
+        ) : !isConnected || !isValidAddress(address) ? (
+          <>
+            <p className="wallet-message">Wallet provider detected. Please connect your wallet.</p>
+            <button className="app-button" onClick={handleConnect}>
+              Connect Wallet
+            </button>
+          </>
+        ) : !isInitialized ? (
+          <p>Initializing CA SDK...</p>
+        ) : (
+          <>
+            <p className="popup-address">
+              Connected: <span className="address-text">{address}</span>
+            </p>
+            <p>Total Unified Balance: {unifiedBalance || 'Loading...'}</p>
+            <p>Allowance Status: {allowanceStatus || 'No allowance set'}</p>
+            <p>Intent Status: {intentStatus || 'No intent'}</p>
+            <button className="app-button" onClick={handleDisconnect}>
+              Disconnect
+            </button>
+            <button className="app-button" onClick={handleSetAllowance}>
+              Set USDC Allowance
+            </button>
+            <button className="app-button" onClick={handleTransfer}>
+              Transfer USDC
+            </button>
+            <button className="app-button" onClick={handleBridge}>
+              Bridge USDC
+            </button>
+            <button className="app-button" onClick={handleRequest}>
+              Request ETH Transfer
+            </button>
+            <button className="app-button" onClick={handleShowBalance}>
+              Show Balances
+            </button>
+          </>
+        )}
+        {error && <p style={{ color: 'red' }}>{error}</p>}
+      </div>
+      <div className="card arcana-color">
+        <p>Plug in CA SDK</p>
+        <p className="read-the-docs">
+          Click on the Arcana logo to learn more.
+        </p>
+        <p>
+          <a href="https://docs.arcana.network">Developer Docs</a>
+        </p>
+      </div>
+
+      {showBalancePopup && chainBalances && (
+        <>
+          <div className="balance-popup-overlay" onClick={() => setShowBalancePopup(false)}></div>
+          <div className="balance-popup">
+            <h2>Total Balances</h2>
+            <p>Total Unified Balance: ${chainBalances.totalFiat.toFixed(2)} USD</p>
+            <ul>
+              {chainBalances.tokens.map((token) => {
+                const chainDetails = Array.isArray(token.breakdown)
+                  ? token.breakdown.map((chain, index) => {
+                      // Convert chain_id to number
+                      const chainId = convertChainId(chain.chain_id);
+                      const chainName = chainNames[chainId] || `Chain ${chainId}`;
+                      console.log(`Mapping chain for ${token.symbol}:`, { chainId, chainName });
+
+                      // Determine if this token is the native token for this chain
+                      const isNativeToken = nativeTokens[chainId] === token.symbol;
+                      let chainBalance = '0';
+                      let chainFiat = 0;
+
+                      if (isNativeToken) {
+                        // Find the native token entry (token_address all zeros)
+                        const nativeEntry = chain.currencies.find((currency) =>
+                          currency.token_address.every((byte: number) => byte === 0)
+                        );
+                        if (nativeEntry) {
+                          chainBalance = nativeEntry.balance;
+                          chainFiat = parseFloat(nativeEntry.value) || 0;
+                          console.log(`Native token match for ${token.symbol} on chain ${chainId}:`, nativeEntry);
+                        }
+                      } else {
+                        // For non-native tokens (USDT, USDC), use total_usd
+                        chainFiat = parseFloat(chain.total_usd) || 0;
+                        console.log(`Non-native token ${token.symbol} on chain ${chainId}, using total_usd:`, chain.total_usd);
+                      }
+
+                      return { chainId, chainName, balance: chainBalance, balanceInFiat: chainFiat };
+                    })
+                  : [];
+
+                return (
+                  <li key={token.symbol} className="token-item">
+                    <div className="token-header" onClick={() => toggleTokenDropdown(token.symbol)}>
+                      <span>{token.symbol}: {formatBalance(token.balance, token.decimals)} {token.symbol} (${token.balanceInFiat.toFixed(2)} USD)</span>
+                      <span className={`arrow ${expandedTokens[token.symbol] ? 'expanded' : ''}`}>▼</span>
+                    </div>
+                    {expandedTokens[token.symbol] && (
+                      <div className="token-details">
+                        <p>Aggregated Balance: {formatBalance(chainBalances.aggregates[token.symbol.toLowerCase()] || '0', token.decimals)} {token.symbol}</p>
+                        {chainDetails.length > 0 ? (
+                          <ul>
+                            {chainDetails.map((chain, index) => (
+                              <li key={`${token.symbol}-chain-${chain.chainId || index}`}>
+                                {chain.chainName}: {formatBalance(chain.balance, token.decimals)} {token.symbol} (${chain.balanceInFiat.toFixed(2)} USD)
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p>No chain-specific data available.</p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            <button className="close-button" onClick={() => setShowBalancePopup(false)}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
+
+      {showAllowancePopup && (
+        <>
+          <div className="allowance-popup-overlay" onClick={closeAllowancePopup}></div>
+          <div className="allowance-popup">
+            <h2>Set USDC Allowances</h2>
+            <ul>
+              {supportedChainsId.map((chain) => (
+                <li key={chain.chainId}>
+                  <label>{chainNames[chain.chainId] || `Chain ${chain.chainId}`}</label>
+                  <input
+                    type="text"
+                    value={allowances[chain.chainId]}
+                    onChange={(e) => handleAllowanceChange(chain.chainId, e.target.value)}
+                    placeholder="Amount in gwei or 'unlimited'"
+                  />
+                </li>
+              ))}
+            </ul>
+            <div className="button-group">
+              <button className="action-button" onClick={setAllUnlimited}>
+                Set All Unlimited
+              </button>
+              <button className="action-button" onClick={setAllAmount}>
+                Set All Amount
+              </button>
+              <button className="action-button" onClick={clearAllAllowances}>
+                Clear All
+              </button>
+            </div>
+            <div className="button-group">
+              <button className="cancel-button" onClick={closeAllowancePopup}>
+                Cancel
+              </button>
+              <button className="submit-button" onClick={submitAllowances}>
+                Submit
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <>
+      <TitleSection />
+      <div className="container">
+        <ViteReactSection />
+        <CASDKSection />
+      </div>
+    </>
+  );
+}
+
+export default App;
