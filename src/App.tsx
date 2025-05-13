@@ -75,10 +75,7 @@ function App() {
     }
     try {
       ca.setEVMProvider(window.ethereum);
-      await ca.init({
-        chainIds: supportedChainsId.map(chain => chain.chainId),
-        network: 'coral', // Use 'coral' for testnet
-      });
+      await ca.init();
       setIsInitialized(true);
       setError(null);
     } catch (err) {
