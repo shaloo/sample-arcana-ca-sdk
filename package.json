@@ -18,7 +18,7 @@
     "wagmi": "^2.14.15"
   },
   "devDependencies": {
-    "@arcana/ca-sdk": "^0.0.6",
+    "@arcana/ca-sdk": "^1.0.2",
     "@eslint/js": "^9.21.0",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",

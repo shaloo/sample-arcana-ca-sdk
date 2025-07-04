@@ -10,11 +10,6 @@ import ReactDOM from 'react-dom/client';
 
 import { supportedChains } from './utils/chains';
 
-//Arcana CA SDK integration
-import { CA } from '@arcana/ca-sdk';
-
-
-
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <App />
