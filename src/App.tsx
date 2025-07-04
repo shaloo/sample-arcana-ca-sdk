@@ -36,6 +36,7 @@ type TokenBalance = {
   balance: string;
   balanceInFiat: number;
   decimals: number;
+  breakdown?: { chainId: number; balance: string; balanceInFiat?: number }[];
 };
 
 // Add a type guard for window.ethereum
@@ -612,31 +613,46 @@ function App() {
         </>
       )}
 
-      {showBalancePopup && chainBalances && (
+      {showBalancePopup && chainBalances && Array.isArray(chainBalances.tokens) && (
         <>
           <div className="balance-popup-overlay" onClick={closeBalancePopup}></div>
           <div className="balance-popup">
-            <h2>Total Balances</h2>
+            <h2>Total Unified Balance</h2>
             <p>
-              Total Unified Balance: ${chainBalances.totalFiat.toFixed(2)} USD
+              <strong>${chainBalances.tokens.reduce((sum, token) => sum + (token.balanceInFiat || 0), 0).toFixed(2)} USD</strong>
             </p>
             <div style={{ marginBottom: '1em' }}>
-              <strong>Token Balances:</strong>
+              <strong>Per-Chain Balances:</strong>
               <ul style={{ listStyle: 'none', paddingLeft: 0 }}>
-                {chainBalances.tokens.map((token, idx) => (
-                  <li key={token.symbol + '-' + token.decimals + '-' + idx} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                    {token.icon && (
-                      <img src={token.icon} alt={token.symbol} style={{ width: 20, height: 20, marginRight: 8 }} />
-                    )}
-                    <span style={{ fontWeight: 500 }}>{token.symbol}:</span>
-                    <span style={{ marginLeft: 6 }}>
-                      {(Number(token.balance) / Math.pow(10, token.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}
-                    </span>
-                    <span style={{ marginLeft: 6, color: '#888' }}>
-                      (${typeof token.balanceInFiat === 'number' ? token.balanceInFiat.toFixed(2) : '0.00'})
-                    </span>
-                  </li>
-                ))}
+                {(() => {
+                  // Build a map: chainId -> [{ symbol, icon, balance, decimals }]
+                  const chainMap: { [chainId: number]: { symbol: string, icon?: string, balance: string, decimals: number }[] } = {};
+                  chainBalances.tokens.forEach(token => {
+                    if (Array.isArray(token.breakdown)) {
+                      token.breakdown.forEach(b => {
+                        if (!chainMap[b.chainId]) chainMap[b.chainId] = [];
+                        chainMap[b.chainId].push({
+                          symbol: token.symbol,
+                          icon: token.icon,
+                          balance: b.balance,
+                          decimals: token.decimals,
+                        });
+                      });
+                    }
+                  });
+                  // Render
+                  return Object.entries(chainMap).map(([chainId, tokens]) => (
+                    <li key={chainId}>
+                      <strong>{chainNames[Number(chainId)] || `Chain ${chainId}`}</strong>:
+                      {tokens.map((t, i) => (
+                        <span key={t.symbol + i} style={{ marginLeft: 8 }}>
+                          {t.icon && <img src={t.icon} alt={t.symbol} style={{ width: 16, height: 16, marginRight: 4, verticalAlign: 'middle' }} />}
+                          {t.symbol}: {(Number(t.balance) / Math.pow(10, t.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })}
+                        </span>
+                      ))}
+                    </li>
+                  ));
+                })()}
               </ul>
             </div>
             <button className="close-button" onClick={closeBalancePopup}>
